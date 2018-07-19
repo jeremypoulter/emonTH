@@ -40,17 +40,16 @@
    - OneWire library      http://www.pjrc.com/teensy/td_libs_OneWire.html   - DS18B20 sensors
    - DallasTemperature    http://download.milesburton.com/Arduino/MaximTemperature/DallasTemperature_LATEST.zip - DS18B20 sensors
  */
- 
-#define RF69_COMPAT 0                                                 // Set to 1 if using RFM69CW or 0 is using RFM12B
+
+#define RF69_COMPAT 0 // Set to 1 if using RFM69CW or 0 is using RFM12B
 
 #include <avr/power.h>
 #include <avr/sleep.h>
-#include <JeeLib.h>                                                 
+#include <JeeLib.h>
 #include <OneWire.h>
 #include <DallasTemperature.h>
 #include "DHT.h"
 
- 
 /*
  Network configuration
  =======================================================================================================================================
@@ -72,36 +71,34 @@
  -------------------------------------------------------------------------------------------------------------
  */
 //#define FREQUENCY RF12_433MHZ   // Transmitter frequency. Only one should be uncommented at a time.
-//#define FREQUENCY RF12_915MHZ 
-#define FREQUENCY RF12_868MHZ 
-const int NETWORK_GROUP = 210;  // Default 210
-int nodeID              = 19;   // Default 19 - DIP switches change this to 20, 21 or 22
-
+//#define FREQUENCY RF12_915MHZ
+#define FREQUENCY RF12_868MHZ
+const int NETWORK_GROUP = 210; // Default 210
+int nodeID = 19;               // Default 19 - DIP switches change this to 20, 21 or 22
 
 // Monitoring configuration
 // ======================================================================================================================================
- const int SECS_BETWEEN_READINGS = 60;  // Default = "60" How long to wait between readings, in seconds.
- 
+const int SECS_BETWEEN_READINGS = 60; // Default = "60" How long to wait between readings, in seconds.
 
-// emonTH pin allocations 
+// emonTH pin allocations
 // ======================================================================================================================================
-const int BATT_ADC     = 1;  // Default 1 - adc 1
-const int LED          = 9;  // Default 9
+const int BATT_ADC = 1; // Default 1 - adc 1
+const int LED = 9;      // Default 9
 
 // DHT sensor configuration
 // ======================================================================================================================================
-#define DHTType DHT22        // Default "DHT22" - Defines dht sensor type. Switch "DHT22" to "DHT11" if you have the corresponding sensor.
-const int DHT_PWR      = 6;  // Default 6
-const int DHT_PIN      = 18; // Default 18
+#define DHTType DHT22   // Default "DHT22" - Defines dht sensor type. Switch "DHT22" to "DHT11" if you have the corresponding sensor.
+const int DHT_PWR = 6;  // Default 6
+const int DHT_PIN = 18; // Default 18
 
 // Onewire bus configuration
 // ======================================================================================================================================
-const int DS18B20_PWR  = 5;  // Default 5
-const int ONE_WIRE_BUS = 19;  // Default 19
+const int DS18B20_PWR = 5;   // Default 5
+const int ONE_WIRE_BUS = 19; // Default 19
 
-const int ASYNC_DELAY           = 750; // Default 375 - Delay for onewire sensors to respond
-const int TEMPERATURE_PRECISION = 12;  // Default 12  - Onewire temperature sensor precision. Details found below.
- /*
+const int ASYNC_DELAY = 750;          // Default 375 - Delay for onewire sensors to respond
+const int TEMPERATURE_PRECISION = 12; // Default 12  - Onewire temperature sensor precision. Details found below.
+                                      /*
   NOTE: - There is a trade off between power consumption and sensor resolution.
         - A higher resolution will keep the processor awake longer - Approximate values found below.
                                      
@@ -115,67 +112,60 @@ const int TEMPERATURE_PRECISION = 12;  // Default 12  - Onewire temperature sens
 
 // DIP switch configuration
 // ======================================================================================================================================
-const byte DIP_switch1=    7;
-const byte DIP_switch2=    8;
-
+const byte DIP_switch1 = 7;
+const byte DIP_switch2 = 8;
 
 // end of configuration
 // ======================================================================================================================================
 // ======================================================================================================================================
 // Start of part that does stuff
 
-
-
+#define MaxOnewire 4 // Maximum number of sensors on the onewire bus - too big of a number may create too big of a data packet (max packet size is 128 bytes) - default "60" to allow for (almost) full 128 byte packet length. 61 would make it full
 
 // Global variables
-boolean debug; // variable to store is debug is available or not. 
-int numberOfDevices; // Number of temperature devices found
-DeviceAddress tempDeviceAddress; // We'll use this variable to store a found onewire device address
-int PayloadLength = 6; // initial, non variable length in bytes. 2 bytes per int / variable in array. 
+boolean debug;                        // variable to store is debug is available or not.
+int numberOfDevices;                  // Number of temperature devices found
+DeviceAddress allAddress[MaxOnewire]; // 8 bytes per address
+
+int PayloadLength = 6; // initial, non variable length in bytes. 2 bytes per int / variable in array.
                        // The default "6" currently covers the battery, humidity, and internal temp variables
                        // This will be incremented according to the number of onewire sensors on the bus.
 
- 
- #define MaxOnewire 4  // Maximum number of sensors on the onewire bus - too big of a number may create too big of a data packet (max packet size is 128 bytes) - default "60" to allow for (almost) full 128 byte packet length. 61 would make it full
- 
 // RFM12B RF payload data structure
-typedef struct {  // must be kept to less than 128 bytes     
-  int16_t battery;   // 2 bytes for each int 
-  int16_t humidity;                                                  
-  int16_t internalTemp;   // 6 bytes of 126 byte(maximum) rf packet used for all these. this number goes into the "PayloadLength" initial value above   	                                      
-  int16_t onewireTemp[MaxOnewire];	  // 2 additional bytes used for each sensor - maximum of 61 sensors supported with this arrangement and rf packet type. (If you had to hook up more than 60 sensors to one node, I pity you.)
-} Payload_t; // create datatype payload
+typedef struct
+{                  // must be kept to less than 128 bytes
+  int16_t battery; // 2 bytes for each int
+  int16_t humidity;
+  int16_t internalTemp;            // 6 bytes of 126 byte(maximum) rf packet used for all these. this number goes into the "PayloadLength" initial value above
+  int16_t onewireTemp[MaxOnewire]; // 2 additional bytes used for each sensor - maximum of 61 sensors supported with this arrangement and rf packet type. (If you had to hook up more than 60 sensors to one node, I pity you.)
+} Payload_t;                       // create datatype payload
 
-  Payload_t rfPayload; // make a new variable "rfPayload" with type "payload"'
+Payload_t rfPayload; // make a new variable "rfPayload" with type "payload"'
 
-
-
-// Attach JeeLib sleep function to Atmega328 watchdog - enables MCU to be put into sleep mode between readings to reduce power consumption 
-ISR(WDT_vect) { 
-  Sleepy::watchdogEvent(); 
-} 
-
+// Attach JeeLib sleep function to Atmega328 watchdog - enables MCU to be put into sleep mode between readings to reduce power consumption
+ISR(WDT_vect)
+{
+  Sleepy::watchdogEvent();
+}
 
 // On board DHT22 / DHT11
 DHT dht(DHT_PIN, DHTType); // define the dht sensor and data pin to the dht library.
-boolean DHT_PRESENT;                                                  
+boolean DHT_PRESENT;
 
 // OneWire for DS18B20
 OneWire oneWire(ONE_WIRE_BUS);
 DallasTemperature sensors(&oneWire);
 
- 
- 
-
 /**
  * setup() - called once on boot to initialise the emonTH
  */
-void setup() {
+void setup()
+{
 
   // Output only if serial UART to USB is connected
-  debug = Serial ? 1 : 0;                              
+  debug = Serial ? 1 : 0;
 
-  print_welcome_message();  
+  print_welcome_message();
   set_pin_modes();
 
   // LED on
@@ -186,19 +176,23 @@ void setup() {
   pinMode(DIP_switch2, INPUT_PULLUP);
   boolean DIP1 = digitalRead(DIP_switch1);
   boolean DIP2 = digitalRead(DIP_switch2);
-  
-  if ((DIP1 == HIGH) && (DIP2 == HIGH)) nodeID=nodeID;
-  if ((DIP1 == LOW) && (DIP2 == HIGH)) nodeID=nodeID+1;
-  if ((DIP1 == HIGH) && (DIP2 == LOW)) nodeID=nodeID+2;
-  if ((DIP1 == LOW) && (DIP2 == LOW)) nodeID=nodeID+3;
+
+  if ((DIP1 == HIGH) && (DIP2 == HIGH))
+    nodeID = nodeID;
+  if ((DIP1 == LOW) && (DIP2 == HIGH))
+    nodeID = nodeID + 1;
+  if ((DIP1 == HIGH) && (DIP2 == LOW))
+    nodeID = nodeID + 2;
+  if ((DIP1 == LOW) && (DIP2 == LOW))
+    nodeID = nodeID + 3;
 
   // Initialize RFM12B
-  rf12_initialize(nodeID, FREQUENCY, NETWORK_GROUP);                       
+  rf12_initialize(nodeID, FREQUENCY, NETWORK_GROUP);
   rf12_sleep(RF12_SLEEP);
 
   // turn off non critical chip functions to reduce battery drain
   reduce_power();
-  
+
   // Find & Initialise sensors
   initialise_DHT22();
   initialise_DS18B20();
@@ -211,18 +205,14 @@ void setup() {
 
 } // end of setup
 
-
-
-
 /**
  * Perform temperature and humidity sending
  */
 void loop()
-{ 
-
+{
 
   // External temperature readings
-  if (numberOfDevices >= 0) 
+  if (numberOfDevices >= 0)
     take_ds18b20_reading();
 
   // Internal temperature / humidity readings
@@ -233,28 +223,25 @@ void loop()
   take_battery_reading();
 
   // Debugging
-  print_payload();                                             
+  print_payload();
 
   // power up radio and send data packet
-  power_spi_enable();  
+  power_spi_enable();
   rf12_sleep(RF12_WAKEUP);
-//rf12_sendNow(0, &rfPayload, sizeof(rfPayload)); // old sender that computed message length
-  rf12_sendNow(0, &rfPayload, PayloadLength); // new sender that only sends used variables calculated in onewire initialisation. 
+  //rf12_sendNow(0, &rfPayload, sizeof(rfPayload)); // old sender that computed message length
+  rf12_sendNow(0, &rfPayload, PayloadLength); // new sender that only sends used variables calculated in onewire initialisation.
   rf12_sendWait(2);
   rf12_sleep(RF12_SLEEP);
-  power_spi_disable();  
+  power_spi_disable();
 
-  if (debug){
+  if (debug)
+  {
     flash_led(50);
   }
 
   // That's it - wait until next time :)
-  dodelay(SECS_BETWEEN_READINGS*1000);
+  dodelay(SECS_BETWEEN_READINGS * 1000);
 }
-
-
-
-
 
 //////////////////////////////////////////////////
 /**
@@ -262,27 +249,22 @@ void loop()
  */
 void set_pin_modes()
 {
-  pinMode(LED,         OUTPUT); 
-  pinMode(DHT_PWR,     OUTPUT);
+  pinMode(LED, OUTPUT);
+  pinMode(DHT_PWR, OUTPUT);
   pinMode(DS18B20_PWR, OUTPUT);
-  pinMode(BATT_ADC,    INPUT);
+  pinMode(BATT_ADC, INPUT);
 }
-
-
-
 
 /////////////////////////////////////////////////
 /**
  * Flash the LED for the stated period
  */
-void flash_led (int duration){
-  digitalWrite(LED,HIGH);
+void flash_led(int duration)
+{
+  digitalWrite(LED, HIGH);
   dodelay(duration);
-  digitalWrite(LED,LOW); 
+  digitalWrite(LED, LOW);
 }
-
-
-
 
 //////////////////////////////////////////////////
 /**
@@ -290,38 +272,38 @@ void flash_led (int duration){
  */
 void initialise_DHT22()
 {
-  DHT_PRESENT=1;
+  DHT_PRESENT = 1;
 
   // Switch on and wait for warm up
-  digitalWrite(DHT_PWR,HIGH);
-  dodelay(2000);                   
+  digitalWrite(DHT_PWR, HIGH);
+  dodelay(2000);
   dht.begin();
 
   // We should get numeric readings, or something's up.
-  if (isnan(dht.readTemperature()) || isnan(dht.readHumidity()))                                         
+  if (isnan(dht.readTemperature()) || isnan(dht.readHumidity()))
   {
-    if (debug) Serial.println("Unable to find DHT22 temp & humidity sensor... trying again"); 
-    Sleepy::loseSomeTime(1500); 
+    if (debug)
+      Serial.println("Unable to find DHT22 temp & humidity sensor... trying again");
+    Sleepy::loseSomeTime(1500);
 
     // One last try
-    if (isnan(dht.readTemperature()) || isnan(dht.readHumidity()))   
+    if (isnan(dht.readTemperature()) || isnan(dht.readHumidity()))
     {
-      if (debug) Serial.println("Unable to find DHT22 temp & humidity sensor... giving up"); 
-      DHT_PRESENT=0;
-    } 
-  } 
+      if (debug)
+        Serial.println("Unable to find DHT22 temp & humidity sensor... giving up");
+      DHT_PRESENT = 0;
+    }
+  }
 
-  if (debug && DHT_PRESENT) {
-    
-    Serial.println("Detected DHT22 temp & humidity sensor");  
+  if (debug && DHT_PRESENT)
+  {
+
+    Serial.println("Detected DHT22 temp & humidity sensor");
   }
 
   // Power off for now
-  digitalWrite(DHT_PWR,LOW);                                          
+  digitalWrite(DHT_PWR, LOW);
 }
-
-
-
 
 //////////////////////////////////////////////////
 /**
@@ -334,95 +316,90 @@ void initialise_DHT22()
 void initialise_DS18B20()
 {
   // Switch on
-  digitalWrite(DS18B20_PWR, HIGH); 
-  dodelay(50); 
+  digitalWrite(DS18B20_PWR, HIGH);
+  dodelay(50);
 
   // start up onewire library
   sensors.begin();
 
   // Disable automatic temperature conversion to reduce time spent awake, instead we sleep for ASYNC_DELAY
-  // see http://harizanov.com/2013/07/optimizing-ds18b20-code-for-low-power-applications/ 
-  sensors.setWaitForConversion(false);                             
+  // see http://harizanov.com/2013/07/optimizing-ds18b20-code-for-low-power-applications/
+  sensors.setWaitForConversion(false);
 
   // Grab a count of devices on the wire
-  numberOfDevices = sensors.getDeviceCount();
- 
- // Detect if too many devices are connected 
-  if (numberOfDevices > MaxOnewire) 
-  { 
-    numberOfDevices = MaxOnewire; // Set number of devices to maximum allowed sensors to prevent the extra sensors from being included.
+  numberOfDevices = min(sensors.getDeviceCount(), MaxOnewire);
+
+  // search for one wire devices and copy to device address arrays.
+  for (byte j = 0; j < numberOfDevices; j++)
+  {
+    sensors.getAddress(allAddress[j], j);
   }
-  
- // add bytes that the sensors will use to the payloadlength. Every sensor is a 16 bit integer that will take up 2 bytes
+
+  // add bytes that the sensors will use to the payloadlength. Every sensor is a 16 bit integer that will take up 2 bytes
   PayloadLength = PayloadLength + (numberOfDevices * 2);
-  
+
   if (PayloadLength >= 128) // check if payload length is out of acceptable values
   {
     PayloadLength = 128; // set length to maximum acceptable value
   }
- 
- // bus info
-  if (debug){
-    
-     // locate devices on the bus
-  Serial.print("Locating devices...");
-  Serial.print("Found ");
-  Serial.print(numberOfDevices, DEC);
-  Serial.println(" devices.");
-  
-  if (numberOfDevices > MaxOnewire) {
-    Serial.println("Too many devices!!!");
-    Serial.print("maximum allowed number of devices is ");
-    Serial.println(MaxOnewire);
+
+  // bus info
+  if (debug)
+  {
+
+    // locate devices on the bus
+    Serial.print("Locating devices...");
+    Serial.print("Found ");
+    Serial.print(numberOfDevices, DEC);
+    Serial.println(" devices.");
+
+    if (numberOfDevices > MaxOnewire)
+    {
+      Serial.println("Too many devices!!!");
+      Serial.print("maximum allowed number of devices is ");
+      Serial.println(MaxOnewire);
+    }
+
+    // report parasite power requirements
+    Serial.print("Parasite power is: ");
+    if (sensors.isParasitePowerMode())
+      Serial.println("ON");
+    else
+      Serial.println("OFF");
   }
 
-  // report parasite power requirements
-  Serial.print("Parasite power is: "); 
-  if (sensors.isParasitePowerMode()) Serial.println("ON");
-  else Serial.println("OFF");
-  } 
- 
- 
- // Loop through each device, print out address
-  for(int i=0;i<numberOfDevices; i++)
+  // Loop through each device, print out address
+  for (int i = 0; i < numberOfDevices; i++)
   {
     // Search the wire for address
-    if(sensors.getAddress(tempDeviceAddress, i))
-	{
-		if (debug) {
-                  Serial.print("Found device ");
-		  Serial.print(i, DEC);
-		  Serial.print(" with address: ");
-		  printAddress(tempDeviceAddress); // just prints sensor address on serial bus
-		  Serial.println();
-		
-		  Serial.print("Setting resolution to ");
-		  Serial.println(TEMPERATURE_PRECISION, DEC);
-                }
-		
-		// set the resolution to TEMPERATURE_PRECISION bit (Each Dallas/Maxim device is capable of several different resolutions)
-		sensors.setResolution(tempDeviceAddress, TEMPERATURE_PRECISION);
-		
-		if (debug) {
-		  Serial.print("Resolution actually set to: ");
-		  Serial.print(sensors.getResolution(tempDeviceAddress), DEC); 
-		  Serial.println();
-                }
-	}else{
-              
-	      if (debug) {
-		Serial.print("Found ghost device at ");
-                Serial.print(i, DEC);
-		Serial.println(" but could not detect address. Check power and cabling");
-              }
-	}
+    if (debug)
+    {
+      Serial.print("Found device ");
+      Serial.print(i, DEC);
+      Serial.print(" with address: ");
+      printAddress(allAddress[i]); // just prints sensor address on serial bus
+      Serial.println();
+
+      Serial.print("Setting resolution to ");
+      Serial.println(TEMPERATURE_PRECISION, DEC);
+    }
+
+    // set the resolution to TEMPERATURE_PRECISION bit (Each Dallas/Maxim device is capable of several different resolutions)
+    sensors.setResolution(allAddress[i], TEMPERATURE_PRECISION);
+
+    if (debug)
+    {
+      Serial.print("Resolution actually set to: ");
+      Serial.print(sensors.getResolution(allAddress[i]), DEC);
+      Serial.println();
+    }
   }
 
   // Switch off for now
   digitalWrite(DS18B20_PWR, LOW);
-  
+
   Serial.print(" rf packet length calculated at: ");
-  Serial.println( PayloadLength );
+  Serial.println(PayloadLength);
 }
 
 // function to print a device address
@@ -430,13 +407,11 @@ void printAddress(DeviceAddress deviceAddress)
 {
   for (uint8_t i = 0; i < 8; i++)
   {
-    if (deviceAddress[i] < 16) Serial.print("0");
+    if (deviceAddress[i] < 16)
+      Serial.print("0");
     Serial.print(deviceAddress[i], HEX);
   }
 }
-
-
-
 
 //////////////////////////////////////////////////
 /** 
@@ -444,20 +419,21 @@ void printAddress(DeviceAddress deviceAddress)
  */
 void validate_sensor_presence()
 {
-  if (!DHT_PRESENT && !numberOfDevices >= 1) 
+  if (!DHT_PRESENT && !numberOfDevices >= 1)
   {
-    if (debug) {
-      
+    if (debug)
+    {
+
       Serial.print("Power down - no sensors detected at all!");
     }
-    
-    for (int i=0; i<10; i++)
+
+    for (int i = 0; i < 10; i++)
     {
-      flash_led(250); 
+      flash_led(250);
       dodelay(250);
     }
-    cli();                                      //stop responding to interrupts 
-    Sleepy::powerDown();                        //sleep forever
+    cli();               //stop responding to interrupts
+    Sleepy::powerDown(); //sleep forever
   }
 }
 
@@ -468,7 +444,7 @@ void validate_sensor_presence()
 void take_battery_reading()
 {
   // convert ADC to volts x10
-  rfPayload.battery=int(analogRead(BATT_ADC)*0.03225806);                    
+  rfPayload.battery = int(analogRead(BATT_ADC) * 0.03225806);
 }
 
 /**
@@ -477,16 +453,16 @@ void take_battery_reading()
 void take_dht22_reading()
 {
   // Power on. It's a long wait for this sensor!
-  digitalWrite(DHT_PWR, HIGH);                
-  dodelay(2000);                                
+  digitalWrite(DHT_PWR, HIGH);
+  dodelay(2000);
 
-  rfPayload.humidity = ( (dht.readHumidity() )* 10 );
+  rfPayload.humidity = ((dht.readHumidity()) * 10);
 
-  float temp=(dht.readTemperature());
-  if (temperature_in_range(temp)) 
-    rfPayload.internalTemp = (temp*10);
+  float temp = (dht.readTemperature());
+  if (temperature_in_range(temp))
+    rfPayload.internalTemp = (temp * 10);
 
-  digitalWrite(DHT_PWR, LOW); 
+  digitalWrite(DHT_PWR, LOW);
 }
 
 //////////////////////////////////////////////////
@@ -494,45 +470,57 @@ void take_dht22_reading()
  * Convenience method; read from all DS18B20s
  * 
  */
-void take_ds18b20_reading () 
+void take_ds18b20_reading()
 {
   // Power up
-  digitalWrite(DS18B20_PWR, HIGH); 
-  dodelay(50); 
-  
-  
-// call sensors.requestTemperatures() to issue a global temperature 
+  digitalWrite(DS18B20_PWR, HIGH);
+  dodelay(50);
+
+  // Set the resolution
+  for(byte j=0; j < numberOfDevices; j++) {
+    sensors.setResolution(allAddress[j], TEMPERATURE_PRECISION);      // and set the a to d conversion resolution of each.
+  }
+
+  // call sensors.requestTemperatures() to issue a global temperature
   // request to all devices on the bus
   sensors.requestTemperatures(); // Send the command to get temperatures
   Serial.println("DONE");
-  
-  
-  // Loop through each device, print out temperature data
-  for(int i=0;i<numberOfDevices; i++)
+
+  // Wait for all sensors to be ready
+  int count;
+  for(count = 0; count < 60; count++) 
   {
-    // Search the wire for address
-    if(sensors.getAddress(tempDeviceAddress, i))
-      {	
-           sensors.setResolution(tempDeviceAddress, TEMPERATURE_PRECISION);
-           
-           // Get readings. We must wait for ASYNC_DELAY due to power-saving (waitForConversion = false)
-           sensors.requestTemperatures();                                   
-           dodelay(ASYNC_DELAY); 
-           float temp1=(sensors.getTempC(tempDeviceAddress));
-           
-           // Payload will maintain previous reading unless the temperature is within range.
-           if (temperature_in_range(temp1)){
-           rfPayload.onewireTemp[i] = temp1 * 10; // add sensor temp to rfpayload in onewireTemp array
-	   } 
-	//else ghost device! Check your power requirements and cabling
+    dodelay(25);
+    int numReady = 0;
+    for(int j=0; j < numberOfDevices; j++) 
+    {
+      oneWire.select(allAddress[j]);
+      if(sensors.isConversionComplete()) {
+        numReady++;
+      } else {
+        break;
       }
+    }
+    if(numReady == numberOfDevices) {
+      break;
+    }
+  }
+
+  // Loop through each device, print out temperature data
+  for (int i = 0; i < numberOfDevices; i++)
+  {
+    float temp1 = (sensors.getTempC(allAddress[i]));
+
+    // Payload will maintain previous reading unless the temperature is within range.
+    if (temperature_in_range(temp1))
+    {
+      rfPayload.onewireTemp[i] = temp1 * 10; // add sensor temp to rfpayload in onewireTemp array
+    }
   }
 
   // Power down
   digitalWrite(DS18B20_PWR, LOW);
- 
 }
-
 
 //////////////////////////////////////////////////
 /**
@@ -556,40 +544,43 @@ void print_payload()
 {
   if (!debug)
     return;
-  
-  Serial.println("emonTH payload: ");
-Serial.print( rfPayload.onewireTemp[1] /10.0); 
-  Serial.print("  Battery voltage: ");
-  Serial.print(rfPayload.battery/10.0);
-  Serial.println("V");
-  
 
-  
-  if (numberOfDevices >= 1){
-    for(int i=0;i<numberOfDevices; i++)
-      {
-        Serial.print("sensor ");
-        Serial.print(i);
-        Serial.print(" = ");
-        Serial.print( rfPayload.onewireTemp[i] /10.0); 
-        Serial.println("C");
-       }
-  } else {
+  Serial.println("emonTH payload: ");
+  Serial.print(rfPayload.onewireTemp[1] / 10.0);
+  Serial.print("  Battery voltage: ");
+  Serial.print(rfPayload.battery / 10.0);
+  Serial.println("V");
+
+  if (numberOfDevices >= 1)
+  {
+    for (int i = 0; i < numberOfDevices; i++)
+    {
+      Serial.print("sensor ");
+      Serial.print(i);
+      Serial.print(" = ");
+      Serial.print(rfPayload.onewireTemp[i] / 10.0);
+      Serial.println("C");
+    }
+  }
+  else
+  {
     Serial.println("No onewire sensors");
   }
-  
-  if (DHT_PRESENT){
+
+  if (DHT_PRESENT)
+  {
     Serial.print("  Internal DHT22 temperature: ");
-    Serial.print(rfPayload.internalTemp/10.0); 
+    Serial.print(rfPayload.internalTemp / 10.0);
     Serial.print("C, Humidity: ");
-  
-    Serial.print(rfPayload.humidity/10.0);
+
+    Serial.print(rfPayload.humidity / 10.0);
     Serial.println("% ");
   }
-  else {
+  else
+  {
     Serial.println("Internal DHT22 sensor: not present");
   }
-  
+
   Serial.print("rfpayload is ");
   //Serial.print(rfPayload); // print the whole rfpayload for software debugging.
   Serial.println();
@@ -608,12 +599,13 @@ void print_welcome_message()
   Serial.begin(4800);
 
   Serial.println("emonTH : OpenEnergyMonitor.org");
-  
-  Serial.print("Node: "); 
-  Serial.print(nodeID); 
- 
-  Serial.print(" Freq: "); 
-  switch(FREQUENCY){
+
+  Serial.print("Node: ");
+  Serial.print(nodeID);
+
+  Serial.print(" Freq: ");
+  switch (FREQUENCY)
+  {
   case RF12_433MHZ:
     Serial.print("433Mhz");
     break;
@@ -625,11 +617,9 @@ void print_welcome_message()
     break;
   }
 
-  
-  Serial.print(" Network: "); 
+  Serial.print(" Network: ");
   Serial.println(NETWORK_GROUP);
 
-  
   dodelay(100);
 }
 
@@ -640,17 +630,18 @@ void print_welcome_message()
  */
 void reduce_power()
 {
-  ACSR |= (1 << ACD);              // Disable Analog comparator    
-  power_twi_disable();             // Disable the Two Wire Interface module.
+  ACSR |= (1 << ACD);  // Disable Analog comparator
+  power_twi_disable(); // Disable the Two Wire Interface module.
 
-  power_timer1_disable();          // Timer 1
-  power_spi_disable();             // Serial peripheral interface
+  power_timer1_disable(); // Timer 1
+  power_spi_disable();    // Serial peripheral interface
 
-  if (!debug){
-   power_usart0_disable();        // Disable serial UART if not connected
-  }  
+  if (!debug)
+  {
+    power_usart0_disable(); // Disable serial UART if not connected
+  }
 
-  power_timer0_enable();           // Necessary for the DS18B20 library.
+  power_timer0_enable(); // Necessary for the DS18B20 library.
 }
 
 //////////////////////////////////////////////////
@@ -661,16 +652,14 @@ void dodelay(unsigned int ms)
 {
   //delay(ms);
   // /*
-  byte oldADCSRA=ADCSRA;
-  byte oldADCSRB=ADCSRB;
-  byte oldADMUX=ADMUX;
+  byte oldADCSRA = ADCSRA;
+  byte oldADCSRB = ADCSRB;
+  byte oldADMUX = ADMUX;
 
   Sleepy::loseSomeTime(ms); // JeeLabs power save function: enter low power mode for x seconds (valid range 16-65000 ms)
 
-  ADCSRA=oldADCSRA;         // restore ADC state
-  ADCSRB=oldADCSRB;
-  ADMUX=oldADMUX;
+  ADCSRA = oldADCSRA; // restore ADC state
+  ADCSRB = oldADCSRB;
+  ADMUX = oldADMUX;
   // */
 }
-
-
