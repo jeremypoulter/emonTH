@@ -41,7 +41,7 @@
    - DallasTemperature    http://download.milesburton.com/Arduino/MaximTemperature/DallasTemperature_LATEST.zip - DS18B20 sensors
  */
  
-#define RF69_COMPAT 1                                                 // Set to 1 if using RFM69CW or 0 is using RFM12B
+#define RF69_COMPAT 0                                                 // Set to 1 if using RFM69CW or 0 is using RFM12B
 
 #include <avr/power.h>
 #include <avr/sleep.h>
@@ -71,9 +71,9 @@
  31	- Special allocation in JeeLib RFM12 driver - Node31 can communicate with nodes on any network group
  -------------------------------------------------------------------------------------------------------------
  */
-#define FREQUENCY RF12_433MHZ   // Transmitter frequency. Only one should be uncommented at a time.
+//#define FREQUENCY RF12_433MHZ   // Transmitter frequency. Only one should be uncommented at a time.
 //#define FREQUENCY RF12_915MHZ 
-//#define FREQUENCY RF12_868MHZ 
+#define FREQUENCY RF12_868MHZ 
 const int NETWORK_GROUP = 210;  // Default 210
 int nodeID              = 19;   // Default 19 - DIP switches change this to 20, 21 or 22
 
@@ -136,14 +136,14 @@ int PayloadLength = 6; // initial, non variable length in bytes. 2 bytes per int
                        // This will be incremented according to the number of onewire sensors on the bus.
 
  
- #define MaxOnewire 60  // Maximum number of sensors on the onewire bus - too big of a number may create too big of a data packet (max packet size is 128 bytes) - default "60" to allow for (almost) full 128 byte packet length. 61 would make it full
+ #define MaxOnewire 4  // Maximum number of sensors on the onewire bus - too big of a number may create too big of a data packet (max packet size is 128 bytes) - default "60" to allow for (almost) full 128 byte packet length. 61 would make it full
  
 // RFM12B RF payload data structure
 typedef struct {  // must be kept to less than 128 bytes     
-  int battery;   // 2 bytes for each int 
-  int humidity;                                                  
-  int internalTemp;   // 6 bytes of 126 byte(maximum) rf packet used for all these. this number goes into the "PayloadLength" initial value above   	                                      
-  int onewireTemp[MaxOnewire];	  // 2 additional bytes used for each sensor - maximum of 61 sensors supported with this arrangement and rf packet type. (If you had to hook up more than 60 sensors to one node, I pity you.)
+  int16_t battery;   // 2 bytes for each int 
+  int16_t humidity;                                                  
+  int16_t internalTemp;   // 6 bytes of 126 byte(maximum) rf packet used for all these. this number goes into the "PayloadLength" initial value above   	                                      
+  int16_t onewireTemp[MaxOnewire];	  // 2 additional bytes used for each sensor - maximum of 61 sensors supported with this arrangement and rf packet type. (If you had to hook up more than 60 sensors to one node, I pity you.)
 } Payload_t; // create datatype payload
 
   Payload_t rfPayload; // make a new variable "rfPayload" with type "payload"'
